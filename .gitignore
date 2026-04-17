@@ -1,0 +1,15 @@
+*.nl
+*.sql
+*.db
+*.schema
+*.pkl
+*.err
+*.out
+*.bin
+*.pyc
+*.tar.gz
+part-2/__pycache__/*
+part-2/.ipynb_checkpoints/*
+part-1/__pycache__/*
+part-1/.ipynb_checkpoints/*
+
