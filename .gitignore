@@ -1,7 +1,3 @@
-*.nl
-*.sql
-*.db
-*.schema
 *.pkl
 *.err
 *.out
