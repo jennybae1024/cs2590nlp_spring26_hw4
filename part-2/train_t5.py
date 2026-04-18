@@ -42,6 +42,9 @@ def get_args():
     parser.add_argument('--patience_epochs', type=int, default=0,
                         help="If validation performance stops improving, how many epochs should we wait before stopping?")
 
+    parser.add_argument('--inference_only', action='store_true',
+                        help="Skip training and run inference on dev and test sets using a saved checkpoint")
+
     parser.add_argument('--use_wandb', action='store_true',
                         help="If set, we will use wandb to keep track of experiments")
     parser.add_argument('--experiment_name', type=str, default='experiment',
@@ -205,10 +208,32 @@ def eval_epoch(args, model, dev_loader, gt_sql_pth, model_sql_path, gt_record_pa
         
 def test_inference(args, model, test_loader, model_sql_path, model_record_path):
     '''
-    You must implement inference to compute your model's generated SQL queries and its associated 
+    You must implement inference to compute your model's generated SQL queries and its associated
     database records. Implementation should be very similar to eval_epoch.
     '''
-    pass
+    model.eval()
+    tokenizer = T5TokenizerFast.from_pretrained('google-t5/t5-small')
+    generated_queries = []
+
+    with torch.no_grad():
+        for encoder_input, encoder_mask, _, _, initial_decoder_input in tqdm(test_loader):
+            encoder_input = encoder_input.to(DEVICE)
+            encoder_mask = encoder_mask.to(DEVICE)
+            initial_decoder_input = initial_decoder_input.to(DEVICE)
+
+            generated_ids = model.generate(
+                input_ids=encoder_input,
+                attention_mask=encoder_mask,
+                decoder_input_ids=initial_decoder_input,
+                max_length=512,
+            )
+
+            for gen_id in generated_ids:
+                query = tokenizer.decode(gen_id, skip_special_tokens=True)
+                query = postprocess_sql(query)
+                generated_queries.append(query)
+
+    save_queries_and_records(generated_queries, model_sql_path, model_record_path)
 
 def main():
     # Get key arguments
@@ -219,11 +244,11 @@ def main():
 
     # Load the data and the model
     train_loader, dev_loader, test_loader = load_t5_data(args.batch_size, args.test_batch_size, args.data_folder)
-    model = initialize_model(args)
-    optimizer, scheduler = initialize_optimizer_and_scheduler(args, model, len(train_loader))
 
-    # Train 
-    train(args, model, train_loader, dev_loader, optimizer, scheduler)
+    if not args.inference_only:
+        model = initialize_model(args)
+        optimizer, scheduler = initialize_optimizer_and_scheduler(args, model, len(train_loader))
+        train(args, model, train_loader, dev_loader, optimizer, scheduler)
 
     # Evaluate
     model = load_model_from_checkpoint(args, best=True)
