@@ -120,7 +120,9 @@ def preprocess_data(nl_list: List[str], sql_list: List[str], schema_path: str = 
             sql_norm = None
             # For test set, just validate NL length
             if nl_norm.strip():  # Not empty
-                nl_with_schema = append_schema_to_nl(nl_norm, schema_text)
+                nl_with_schema = nl_norm
+                # append_schema_to_nl(nl_norm, schema_text)
+                # nl_with_schema = append_schema_to_nl(nl_norm, schema_text)
                 processed_nl.append(nl_with_schema)
                 processed_sql.append(sql_norm)
             else:
@@ -129,7 +131,8 @@ def preprocess_data(nl_list: List[str], sql_list: List[str], schema_path: str = 
             sql_norm = normalize_sql(sql)
 
             # Append schema to NL (reduces token length by only including table names)
-            nl_with_schema = append_schema_to_nl(nl_norm, schema_text)
+            nl_with_schema = nl_norm
+            # append_schema_to_nl(nl_norm, schema_text)
 
             # Clean
             if is_valid_example(nl_with_schema, sql_norm):
