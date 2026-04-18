@@ -216,7 +216,7 @@ def test_inference(args, model, test_loader, model_sql_path, model_record_path):
     generated_queries = []
 
     with torch.no_grad():
-        for encoder_input, encoder_mask, _, _, initial_decoder_input in tqdm(test_loader):
+        for encoder_input, encoder_mask, initial_decoder_input in tqdm(test_loader):
             encoder_input = encoder_input.to(DEVICE)
             encoder_mask = encoder_mask.to(DEVICE)
             initial_decoder_input = initial_decoder_input.to(DEVICE)
@@ -253,19 +253,21 @@ def main():
     # Evaluate
     model = load_model_from_checkpoint(args, best=True)
     model.eval()
-    
-    # Dev set
+
     experiment_name = args.experiment_name
     model_type = 'ft' if args.finetune else 'scr'
-    gt_sql_path = os.path.join(f'data/dev.sql')
-    gt_record_path = os.path.join(f'records/dev_gt_records.pkl')
-    model_sql_path = os.path.join(f'results/t5_{model_type}_{experiment_name}_dev.sql')
-    model_record_path = os.path.join(f'records/t5_{model_type}_{experiment_name}_dev.pkl')
-    dev_loss, dev_record_f1, dev_record_em, dev_sql_em, dev_error_rate = eval_epoch(args, model, dev_loader,
-                                                                                    gt_sql_path, model_sql_path,
-                                                                                    gt_record_path, model_record_path)
-    print(f"Dev set results: Loss: {dev_loss}, Record F1: {dev_record_f1}, Record EM: {dev_record_em}, SQL EM: {dev_sql_em}")
-    print(f"Dev set results: {dev_error_rate*100:.2f}% of the generated outputs led to SQL errors")
+
+    if not args.inference_only:
+        # Dev set
+        gt_sql_path = os.path.join(f'data/dev.sql')
+        gt_record_path = os.path.join(f'records/dev_gt_records.pkl')
+        model_sql_path = os.path.join(f'results/t5_{model_type}_{experiment_name}_dev.sql')
+        model_record_path = os.path.join(f'records/t5_{model_type}_{experiment_name}_dev.pkl')
+        dev_loss, dev_record_f1, dev_record_em, dev_sql_em, dev_error_rate = eval_epoch(args, model, dev_loader,
+                                                                                        gt_sql_path, model_sql_path,
+                                                                                        gt_record_path, model_record_path)
+        print(f"Dev set results: Loss: {dev_loss}, Record F1: {dev_record_f1}, Record EM: {dev_record_em}, SQL EM: {dev_sql_em}")
+        print(f"Dev set results: {dev_error_rate*100:.2f}% of the generated outputs led to SQL errors")
 
     # Test set
     model_sql_path = os.path.join(f'results/t5_{model_type}_{experiment_name}_test.sql')
