@@ -61,8 +61,8 @@ def train(args, model, train_loader, dev_loader, optimizer, scheduler):
     epochs_since_improvement = 0
 
     model_type = 'ft' if args.finetune else 'scr'
-    # experiment_name = args.experiment_name
-    experiment_name = f"{args.data_folder}_ep{args.max_n_epochs}_b{args.batch_size}_lr{str(args.learning_rate)}"
+    experiment_name = args.experiment_name
+    # experiment_name = f"{args.data_folder}_ep{args.max_n_epochs}_b{args.batch_size}_lr{str(args.learning_rate)}"
     checkpoint_dir = os.path.join('checkpoints', f'{model_type}_experiments', args.experiment_name)
     gt_sql_path = os.path.join(f'data/dev.sql')
     gt_record_path = os.path.join(f'records/dev_gt_records.pkl')
