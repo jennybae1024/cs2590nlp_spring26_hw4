@@ -11,6 +11,7 @@ from t5_utils import initialize_model, initialize_optimizer_and_scheduler, save_
 from transformers import GenerationConfig, T5TokenizerFast
 from load_data import load_t5_data
 from utils import compute_metrics, save_queries_and_records
+from sql_processing import postprocess_sql
 
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 PAD_IDX = 0
@@ -27,7 +28,7 @@ def get_args():
     # Training hyperparameters
     parser.add_argument('--optimizer_type', type=str, default="AdamW", choices=["AdamW"],
                         help="What optimizer to use")
-    parser.add_argument('--learning_rate', type=float, default=1e-1)
+    parser.add_argument('--learning_rate', type=float, default=3e-4)
     parser.add_argument('--weight_decay', type=float, default=0)
 
     parser.add_argument('--scheduler_type', type=str, default="cosine", choices=["none", "cosine", "linear"],
@@ -58,7 +59,8 @@ def train(args, model, train_loader, dev_loader, optimizer, scheduler):
     epochs_since_improvement = 0
 
     model_type = 'ft' if args.finetune else 'scr'
-    experiment_name = args.experiment_name
+    # experiment_name = args.experiment_name
+    experiment_name = f"{args.data_folder}_ep{args.max_n_epochs}_b{args.batch_size}_lr{str(args.learning_rate)}"
     checkpoint_dir = os.path.join('checkpoints', f'{model_type}_experiments', args.experiment_name)
     gt_sql_path = os.path.join(f'data/dev.sql')
     gt_record_path = os.path.join(f'records/dev_gt_records.pkl')
@@ -179,9 +181,11 @@ def eval_epoch(args, model, dev_loader, gt_sql_pth, model_sql_path, gt_record_pa
                 max_length=512,
             )
 
-            # Decode generated IDs to SQL strings
+            # Decode generated IDs to SQL strings and restore raw ATIS form
+            # (expand aliases, uppercase keywords and quoted literals).
             for gen_id in generated_ids:
                 query = tokenizer.decode(gen_id, skip_special_tokens=True)
+                query = postprocess_sql(query)
                 generated_queries.append(query)
 
     eval_loss = total_loss / total_tokens if total_tokens > 0 else 0

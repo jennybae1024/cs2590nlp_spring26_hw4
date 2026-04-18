@@ -1,16 +1,45 @@
 """
 Data preprocessing script for T5 text-to-SQL task.
-Applies: 1) Text normalization, 2) SQL formatting, 4) Data cleaning
+Applies: 1) Text normalization, 2) SQL formatting, 3) Schema appending, 4) Data cleaning
 """
 
 import re
 import os
+import json
 from typing import List, Tuple
 from transformers import T5TokenizerFast
 from collections import Counter
 
+from sql_processing import preprocess_sql
+
 # Load tokenizer
 tokenizer = T5TokenizerFast.from_pretrained('google-t5/t5-small')
+
+# ============= Schema Functions =============
+
+def load_schema(schema_path: str) -> str:
+    """
+    Load database schema and extract only table names (not column names).
+    This keeps the token length manageable for T5.
+    Format: table1 | table2 | table3 (using | as separator)
+    """
+    with open(schema_path, 'r') as f:
+        schema = json.load(f)
+
+    # Extract table names from the "ents" section
+    table_names = list(schema.get('ents', {}).keys())
+
+    # Create a simplified schema string with just table names, separated by |
+    schema_text = " | ".join(table_names)
+
+    return schema_text
+
+def append_schema_to_nl(nl_text: str, schema_text: str) -> str:
+    """
+    Append simplified schema information to natural language input.
+    Format: translate to SQL: [nl_text]\ntables: [schema_text]
+    """
+    return f"translate to SQL: {nl_text}\ntables: {schema_text}"
 
 # ============= Preprocessing Functions =============
 
@@ -38,34 +67,14 @@ def normalize_text(text: str) -> str:
 
 def normalize_sql(query: str) -> str:
     """
-    2. SQL Formatting:
-       - Convert to lowercase
-       - Standardize spacing around keywords and operators
-       - Remove extra whitespace
+    2. SQL Formatting (delegates to sql_processing.preprocess_sql):
+       - Space-pad operators/punctuation for consistent tokenization
+       - Lowercase
+       - Compress ATIS table aliases (flight_1 -> f1, airport_service_1 -> as1, ...)
        - Normalize quotes
     """
-    # Convert to lowercase
-    query = query.lower()
-
-    # Replace multiple spaces with single space
-    query = re.sub(r'\s+', ' ', query)
-
-    # Standardize spacing around common SQL keywords and operators
-    # Add space after keywords if missing
-    keywords = ['select', 'from', 'where', 'and', 'or', 'join', 'on', 'left', 'right', 'inner', 'outer', 'group', 'by', 'order', 'having', 'limit', 'union', 'as']
-    for kw in keywords:
-        query = re.sub(r'\b' + kw + r'\b', ' ' + kw + ' ', query)
-
-    # Fix multiple spaces created by above operations
-    query = re.sub(r'\s+', ' ', query)
-
-    # Normalize quotes (use single quotes for consistency)
     query = query.replace('"', "'")
-
-    # Strip whitespace
-    query = query.strip()
-
-    return query
+    return preprocess_sql(query)
 
 
 def is_valid_example(nl: str, sql: str, max_nl_length: int = 256, max_sql_length: int = 512) -> bool:
@@ -89,25 +98,45 @@ def is_valid_example(nl: str, sql: str, max_nl_length: int = 256, max_sql_length
     return True
 
 
-def preprocess_data(nl_list: List[str], sql_list: List[str]) -> Tuple[List[str], List[str]]:
+def preprocess_data(nl_list: List[str], sql_list: List[str], schema_path: str = 'data/flight_database.schema') -> Tuple[List[str], List[str]]:
     """
     Apply all preprocessing steps to the data.
+    Includes: normalization, schema appending, and validation.
+    Handles test split where sql_list may contain None values.
     """
     processed_nl = []
     processed_sql = []
+
+    # Load simplified schema (table names only)
+    schema_text = load_schema(schema_path)
 
     num_removed = 0
     for nl, sql in zip(nl_list, sql_list):
         # Normalize
         nl_norm = normalize_text(nl)
-        sql_norm = normalize_sql(sql)
 
-        # Clean
-        if is_valid_example(nl_norm, sql_norm):
-            processed_nl.append(nl_norm)
-            processed_sql.append(sql_norm)
+        # Handle test split where sql is None
+        if sql is None:
+            sql_norm = None
+            # For test set, just validate NL length
+            if nl_norm.strip():  # Not empty
+                nl_with_schema = append_schema_to_nl(nl_norm, schema_text)
+                processed_nl.append(nl_with_schema)
+                processed_sql.append(sql_norm)
+            else:
+                num_removed += 1
         else:
-            num_removed += 1
+            sql_norm = normalize_sql(sql)
+
+            # Append schema to NL (reduces token length by only including table names)
+            nl_with_schema = append_schema_to_nl(nl_norm, schema_text)
+
+            # Clean
+            if is_valid_example(nl_with_schema, sql_norm):
+                processed_nl.append(nl_with_schema)
+                processed_sql.append(sql_norm)
+            else:
+                num_removed += 1
 
     print(f"Removed {num_removed} examples during data cleaning")
     return processed_nl, processed_sql
@@ -164,8 +193,12 @@ def load_data(split: str) -> Tuple[List[str], List[str]]:
     with open(nl_path, 'r') as f:
         nl_list = [line.strip() for line in f.readlines()]
 
-    with open(sql_path, 'r') as f:
-        sql_list = [line.strip() for line in f.readlines()]
+    # SQL file may not exist for test split
+    if os.path.exists(sql_path):
+        with open(sql_path, 'r') as f:
+            sql_list = [line.strip() for line in f.readlines()]
+    else:
+        sql_list = [None] * len(nl_list)  # No SQL labels for test set
 
     return nl_list, sql_list
 
@@ -195,12 +228,14 @@ def main():
     """Main preprocessing pipeline."""
     print("Loading data...")
 
-    # Load training and dev data
+    # Load training, dev, and test data
     train_nl, train_sql = load_data('train')
     dev_nl, dev_sql = load_data('dev')
+    test_nl, test_sql = load_data('test')
 
     print(f"Loaded {len(train_nl)} training examples")
     print(f"Loaded {len(dev_nl)} dev examples")
+    print(f"Loaded {len(test_nl)} test examples")
 
     # Compute statistics BEFORE preprocessing
     print("\nComputing statistics before preprocessing...")
@@ -211,6 +246,7 @@ def main():
     print("\nApplying preprocessing steps...")
     train_nl_proc, train_sql_proc = preprocess_data(train_nl, train_sql)
     dev_nl_proc, dev_sql_proc = preprocess_data(dev_nl, dev_sql)
+    test_nl_proc, test_sql_proc = preprocess_data(test_nl, test_sql)
 
     # Compute statistics AFTER preprocessing
     print("Computing statistics after preprocessing...")
@@ -236,6 +272,9 @@ def main():
 
     with open('data_preprocessed/dev.sql', 'w') as f:
         f.write('\n'.join(dev_sql_proc))
+
+    with open('data_preprocessed/test.nl', 'w') as f:
+        f.write('\n'.join(test_nl_proc))
 
     print("✓ Preprocessed data saved to data_preprocessed/")
 
