@@ -24,6 +24,8 @@ def get_args():
 
     # Model hyperparameters
     parser.add_argument('--finetune', action='store_true', help="Whether to finetune T5 or not")
+    parser.add_argument('--freeze_encoder', action='store_true', help="Freeze encoder weights during training")
+    parser.add_argument('--freeze_decoder', action='store_true', help="Freeze decoder weights during training")
     
     # Training hyperparameters
     parser.add_argument('--optimizer_type', type=str, default="AdamW", choices=["AdamW"],
